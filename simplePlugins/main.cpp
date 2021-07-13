@@ -5,6 +5,7 @@
 #include <sstream>
 #include <Windows.h>
 #include <filesystem>
+#include <vector>
 
 namespace fs = std::filesystem;
 constexpr auto CurrentDirectory = L"../x64/Debug/plugins/";
@@ -55,32 +56,43 @@ std::wstring DisplayDirectoryContent()
 
 using dll_function = IPlugin * (*)();
 
+struct PluginStruct
+{
+	HINSTANCE Handler = NULL;
+	dll_function ProcAdd = nullptr;
+	IPlugin *Plugin = nullptr;
+};
+
 int main() 
 {
 	size_t numberOfPlugin = 0;
-	IPlugin *plugins[3];
+
+	std::vector<PluginStruct> plugins;
+	PluginStruct tempPlugin;
 	constexpr auto DLLDirectory = L"../x64/Debug/plugins/";
 
 	for (auto& p : fs::directory_iterator(DLLDirectory))
 	{
 		auto DLLFile = p.path().c_str();
-		auto hGetProcIDDLL = LoadLibrary(DLLFile);
+		tempPlugin.Handler = LoadLibrary(DLLFile);
 
-		if (hGetProcIDDLL)
+		if (tempPlugin.Handler)
 		{
-			auto* createPluginFunction = reinterpret_cast<dll_function>(GetProcAddress(hGetProcIDDLL, "newPlugin"));
+			tempPlugin.ProcAdd = reinterpret_cast<dll_function>(GetProcAddress(tempPlugin.Handler, "newPlugin"));
 
 			std::wcout << L"loaded the dynamyc library: " << DLLFile << std::endl;
-			if (createPluginFunction)
+			if (tempPlugin.ProcAdd)
 			{
+				tempPlugin.Plugin = tempPlugin.ProcAdd();
+				plugins.push_back(tempPlugin);
+
 				std::cout << "function was located" << std::endl;
-				plugins[numberOfPlugin] = createPluginFunction();
-				numberOfPlugin++;
 			}
 			else
 			{
 				std::cout << "could not locate the function" << std::endl;
 			}
+
 		}
 		else
 		{
@@ -88,22 +100,26 @@ int main()
 		}
 	}
 
-	if (numberOfPlugin == 0)
+	if (plugins.empty())
 	{
 		std::cout << std::endl << "No plugins were loaded" << std::endl;
 		return EXIT_FAILURE;
 	}
 
-	std::cout << std::endl << "Created " << numberOfPlugin << " plugins:" << std::endl;
-	for (size_t i = 0; i < numberOfPlugin; ++i)
+	std::cout << std::endl << "Created " << plugins.size() << " plugins:" << std::endl;
+	for (const auto plugin : plugins)
 	{
-		std::cout << plugins[i]->GetName() << std::endl;
+		std::cout << plugin.Plugin->GetName() << std::endl;
 	}
+	std::cout << std::endl;
 
-	for (size_t i = 0; i < numberOfPlugin; ++i)
+	for (const auto plugin : plugins)
 	{
-		delete plugins[i];
+		delete plugin.Plugin;
+		if (FreeLibrary(plugin.Handler))
+		{
+			std::cout << "library free" << std::endl;
+		}
 	}
-
 	return EXIT_SUCCESS;
 }
